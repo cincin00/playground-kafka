@@ -1,8 +1,9 @@
 # NestJS Kafka Playground
 
+
 NestJS와 TypeScript 기반으로 Kafka를 직접 만져보면서 EDA(Event-Driven Architecture) 흐름을 체험하기 위한 로컬 실습 프로젝트입니다.
 
-이 저장소의 핵심 목표는 아주 단순합니다.
+<img width="1718" height="1321" alt="screencapture-localhost-8080-2026-03-26-15_47_51" src="https://github.com/user-attachments/assets/67c39fe8-050f-43aa-b673-c54eda9506fb" />
 
 - HTTP 요청이 들어오면 producer가 Kafka 토픽으로 이벤트를 발행합니다.
 
@@ -78,8 +79,6 @@ NestJS와 TypeScript 기반으로 Kafka를 직접 만져보면서 EDA(Event-Driv
 - `packages/contracts`
   - 토픽 이름과 이벤트 타입 정의를 한곳에 둡니다.
   - 나중에 producer나 consumer를 다른 런타임으로 바꿔도 이벤트 계약을 재사용하기 쉽게 만듭니다.
-
-아래 Mermaid 다이어그램은 현재 프로젝트의 서비스 구조와 이벤트 흐름을 그대로 옮긴 것입니다. GitHub README에서도 바로 렌더링됩니다.
 
 ### 1-1. Mermaid 서비스 구조도
 
