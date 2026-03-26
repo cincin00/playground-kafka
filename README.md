@@ -29,19 +29,71 @@ NestJS와 TypeScript 기반으로 Kafka를 직접 만져보면서 EDA(Event-Driv
   - 토픽 이름과 이벤트 타입 정의를 한곳에 둡니다.
   - 나중에 producer나 consumer를 다른 런타임으로 바꿔도 이벤트 계약을 재사용하기 쉽게 만듭니다.
 
-흐름을 그림처럼 표현하면 아래와 같습니다.
+아래 Mermaid 다이어그램은 현재 프로젝트의 서비스 구조와 이벤트 흐름을 그대로 옮긴 것입니다. GitHub README에서도 바로 렌더링됩니다.
 
-```text
-HTTP Client
-    |
-    v
-producer-api
-    |
-    v
-Kafka topic: orders.created.v1
-    |                          |
-    v                          v
-notification-service      analytics-service
+### 1-1. Mermaid 서비스 구조도
+
+```mermaid
+flowchart LR
+    client["HTTP Client"]
+
+    subgraph producer["producer-api"]
+        health["GET /health"]
+        orders["POST /orders"]
+        service["OrdersService<br/>ClientKafka producer"]
+    end
+
+    subgraph contracts["packages/contracts"]
+        contract["OrderCreatedEvent<br/>topic: orders.created.v1"]
+    end
+
+    subgraph infra["Docker Compose"]
+        kafka["Kafka Broker<br/>localhost:9094"]
+        kafkaUi["Kafka UI<br/>localhost:8080"]
+    end
+
+    subgraph consumers["Kafka Consumers"]
+        notification["notification-service<br/>groupId: notification-service-group"]
+        analytics["analytics-service<br/>groupId: analytics-service-group"]
+    end
+
+    client --> health
+    client --> orders
+    orders --> service
+    service --> contract
+    contract --> kafka
+    kafka --> notification
+    kafka --> analytics
+    kafkaUi -. inspect .-> kafka
+```
+
+### 1-2. Mermaid 이벤트 흐름도
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Client as HTTP Client
+    participant Producer as producer-api
+    participant Orders as OrdersService
+    participant Kafka as Kafka topic<br/>orders.created.v1
+    participant Notification as notification-service
+    participant Analytics as analytics-service
+
+    Client->>Producer: POST /orders
+    Note over Client,Producer: customerId, totalAmount, currency 전달
+
+    Producer->>Orders: createOrder(request)
+    Orders->>Orders: eventId, orderId 생성
+    Orders->>Kafka: emit orders.created.v1
+    Kafka-->>Producer: publish ack
+    Producer-->>Client: 200 OK + event payload
+
+    Note over Notification,Analytics: 서로 다른 consumer group이므로 같은 이벤트를 각각 소비
+    Kafka-->>Notification: consume event
+    Notification->>Notification: 알림 워크플로 로그 기록
+
+    Kafka-->>Analytics: consume event
+    Analytics->>Analytics: 분석 프로젝션 로그 기록
 ```
 
 ## 2. 이 프로젝트로 배울 수 있는 것
