@@ -96,6 +96,150 @@ sequenceDiagram
     Analytics->>Analytics: 분석 프로젝션 로그 기록
 ```
 
+### 1-3. Mermaid consumer group scale-out 흐름도
+
+아래 그림은 `analytics-service`를 같은 `groupId`로 하나 더 띄웠을 때 어떤 차이가 생기는지 보여줍니다.
+
+```mermaid
+flowchart LR
+    producer["producer-api"]
+    topic["Kafka topic<br/>orders.created.v1"]
+
+    subgraph partitions["topic partitions 예시"]
+        p0["partition 0"]
+        p1["partition 1"]
+        p2["partition 2"]
+    end
+
+    subgraph notificationGroup["notification-service-group"]
+        notification1["notification-service"]
+    end
+
+    subgraph analyticsGroup["analytics-service-group"]
+        analytics1["analytics-service"]
+        analytics2["analytics-service-2"]
+    end
+
+    producer --> topic
+    topic --> p0
+    topic --> p1
+    topic --> p2
+
+    p0 --> notification1
+    p1 --> notification1
+    p2 --> notification1
+
+    p0 --> analytics1
+    p1 --> analytics2
+    p2 --> analytics1
+
+    note1["notification group은 단일 consumer라 모든 partition을 담당"]
+    note2["analytics group은 같은 group 내부에서 partition을 예시처럼 분산 할당"]
+
+    notification1 -.-> note1
+    analytics1 -.-> note2
+    analytics2 -.-> note2
+```
+
+이 다이어그램의 핵심은 아래와 같습니다.
+
+- `notification-service-group`은 인스턴스가 하나뿐이라 해당 group이 맡는 모든 메시지를 한 프로세스가 처리합니다.
+- `analytics-service-group`은 인스턴스가 둘이면 partition 할당 결과에 따라 메시지가 인스턴스 간 분산될 수 있습니다.
+- 하지만 `notification-service-group`과 `analytics-service-group`은 서로 다른 group이므로 두 group 모두 같은 이벤트를 각자 받습니다.
+
+### 1-4. Mermaid 로컬 실행 환경 배치도
+
+아래 그림은 이 프로젝트를 로컬에서 실행할 때의 프로세스, 컨테이너, 포트 관계를 보여줍니다.
+
+```mermaid
+flowchart TB
+    subgraph host["Local machine"]
+        subgraph terminals["Node.js processes"]
+            producerProc["producer-api<br/>localhost:3000"]
+            notificationProc["notification-service<br/>Kafka consumer"]
+            analyticsProc["analytics-service<br/>Kafka consumer"]
+        end
+
+        subgraph docker["Docker Compose"]
+            kafkaContainer["playground-kafka<br/>Kafka broker<br/>localhost:9094"]
+            kafkaUiContainer["playground-kafka-ui<br/>Kafka UI<br/>localhost:8080"]
+        end
+    end
+
+    browser["Browser"]
+    client["curl / API client"]
+
+    client --> producerProc
+    producerProc --> kafkaContainer
+    notificationProc --> kafkaContainer
+    analyticsProc --> kafkaContainer
+    browser --> kafkaUiContainer
+    kafkaUiContainer --> kafkaContainer
+```
+
+이 구조를 기준으로 보면:
+
+- Node.js로 실행하는 Nest 서비스 3개와 Docker로 띄우는 Kafka 2개 컴포넌트가 분리되어 있습니다.
+- `producer-api`는 HTTP 포트를 열고, consumer 둘은 HTTP 포트 없이 Kafka에만 연결됩니다.
+- Kafka UI는 브라우저에서 접속해 Kafka 내부 상태를 확인하는 관찰 도구 역할을 합니다.
+
+### 1-5. Mermaid 소스 의존 관계도
+
+아래 그림은 현재 소스 파일들이 어떤 방향으로 의존하는지 단순화해서 보여줍니다.
+
+```mermaid
+flowchart LR
+    subgraph producerApp["apps/producer-api/src"]
+        producerMain["main.ts"]
+        producerModule["app.module.ts"]
+        producerController["orders.controller.ts"]
+        producerService["orders.service.ts"]
+        producerConst["orders.constants.ts"]
+    end
+
+    subgraph notificationApp["apps/notification-service/src"]
+        notificationMain["main.ts"]
+        notificationModule["app.module.ts"]
+        notificationController["order-events.controller.ts"]
+    end
+
+    subgraph analyticsApp["apps/analytics-service/src"]
+        analyticsMain["main.ts"]
+        analyticsModule["app.module.ts"]
+        analyticsController["order-events.controller.ts"]
+    end
+
+    subgraph contractsPkg["packages/contracts/src"]
+        contracts["order-created.event.ts"]
+    end
+
+    producerMain --> producerModule
+    producerModule --> producerController
+    producerModule --> producerService
+    producerModule --> producerConst
+    producerModule --> contracts
+    producerController --> producerService
+    producerController --> contracts
+    producerService --> producerConst
+    producerService --> contracts
+
+    notificationMain --> notificationModule
+    notificationMain --> contracts
+    notificationModule --> notificationController
+    notificationController --> contracts
+
+    analyticsMain --> analyticsModule
+    analyticsMain --> contracts
+    analyticsModule --> analyticsController
+    analyticsController --> contracts
+```
+
+이 그림으로 읽을 수 있는 구조적 의미는 아래와 같습니다.
+
+- 세 애플리케이션 모두 이벤트 계약을 직접 참조하지만, 서로의 구현 파일에는 의존하지 않습니다.
+- 공통 계약이 `packages/contracts`에 있기 때문에 producer와 consumer가 느슨하게 연결됩니다.
+- producer 내부에서는 `controller -> service -> Kafka client` 흐름이 있고, consumer 내부에서는 `main -> module -> event controller` 흐름이 있습니다.
+
 ## 2. 이 프로젝트로 배울 수 있는 것
 
 이 예제를 통해 아래 내용을 바로 체감할 수 있습니다.
