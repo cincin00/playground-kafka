@@ -300,6 +300,40 @@ flowchart LR
 - 이벤트 이름을 버전 포함 토픽으로 관리하는 방식
 - 이벤트 스키마를 애플리케이션 코드와 분리하는 기본 습관
 
+### 2-1. Kafka 기본 개념과 용어
+
+Kafka를 처음 볼 때는 용어가 한꺼번에 많이 나와서 헷갈릴 수 있습니다. 아래 표는 이 프로젝트를 기준으로 가장 자주 마주치는 개념을 정리한 것입니다.
+
+| 용어 | 의미 | 이 프로젝트에서의 예시 |
+| --- | --- | --- |
+| `Broker` | 메시지를 저장하고 전달하는 Kafka 서버입니다. | Docker Compose로 띄운 Kafka 브로커가 `localhost:9094`로 열립니다. |
+| `Topic` | 이벤트를 분류하는 논리적 채널입니다. Producer는 topic에 발행하고 consumer는 topic에서 읽습니다. | `orders.created.v1` |
+| `Message` / `Record` | Kafka에 저장되는 실제 데이터 1건입니다. 보통 이벤트 payload가 여기에 들어갑니다. | `eventId`, `orderId`, `customerId`, `totalAmount`가 포함된 주문 생성 이벤트 |
+| `Producer` | 메시지를 Kafka로 보내는 애플리케이션입니다. | `producer-api` |
+| `Consumer` | Kafka에서 메시지를 읽어 처리하는 애플리케이션입니다. | `notification-service`, `analytics-service` |
+| `Partition` | topic을 여러 조각으로 나눈 단위입니다. Kafka는 partition 단위로 저장과 분산 처리를 합니다. | 현재 Compose 설정은 topic 기본 partition 수를 `3`으로 둡니다. |
+| `Offset` | partition 안에서 메시지의 순서를 나타내는 번호입니다. Consumer는 어디까지 읽었는지 offset으로 추적합니다. | 로그에 `partition=2 offset=0`처럼 표시됩니다. |
+| `Consumer Group` | 여러 consumer를 하나의 논리적 소비 단위로 묶는 개념입니다. 같은 group 안에서는 메시지를 나눠 처리합니다. | `notification-service-group`, `analytics-service-group` |
+| `Fan-out` | 하나의 이벤트를 여러 consumer group이 각자 받는 구조입니다. | notification group과 analytics group이 같은 이벤트를 각각 소비합니다. |
+| `Distributed Consumption` | 같은 consumer group 안의 여러 consumer가 partition을 나눠 처리하는 방식입니다. | `analytics-service`를 같은 `groupId`로 여러 개 띄우는 실험 |
+| `Event Contract` | 이벤트 이름과 payload 구조를 정의한 공통 약속입니다. Producer와 consumer가 같은 계약을 공유합니다. | `packages/contracts/src/order-created.event.ts` |
+| `Consumer Lag` | topic에 쌓인 메시지 양과 consumer가 읽은 위치 사이의 차이입니다. lag가 크면 consumer가 밀리고 있다는 뜻입니다. | Kafka UI에서 group 상태를 볼 때 참고할 수 있습니다. |
+
+이 프로젝트 흐름에 대입하면 아래처럼 이해하면 됩니다.
+
+1. 클라이언트가 `producer-api`로 HTTP 요청을 보냅니다.
+2. `producer-api`는 요청을 `orders.created.v1` topic의 message로 변환해서 Kafka broker에 발행합니다.
+3. Kafka는 그 message를 topic의 특정 partition에 저장하고 offset을 부여합니다.
+4. `notification-service-group`과 `analytics-service-group`은 서로 다른 consumer group이므로 같은 이벤트를 각각 받습니다.
+5. 만약 같은 `groupId`를 쓰는 consumer 인스턴스를 여러 개 띄우면, 그 group 내부에서는 partition을 나눠서 분산 소비합니다.
+
+처음에는 아래 네 가지만 확실히 잡아도 Kafka가 훨씬 쉽게 보입니다.
+
+- `topic`: 이벤트가 들어가는 이름표
+- `partition`: topic을 나눈 저장 단위
+- `offset`: partition 안에서의 메시지 순번
+- `consumer group`: 누가 메시지를 함께 나눠 처리할지 정하는 단위
+
 ## 3. 디렉터리 구조
 
 ```text
