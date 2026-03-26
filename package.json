@@ -1,0 +1,33 @@
+{
+  "name": "playground-kafka",
+  "version": "1.0.0",
+  "private": true,
+  "description": "NestJS + Kafka playground for local EDA practice",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev:producer": "tsx watch apps/producer-api/src/main.ts",
+    "dev:notification": "tsx watch apps/notification-service/src/main.ts",
+    "dev:analytics": "tsx watch apps/analytics-service/src/main.ts",
+    "start:producer": "node dist/apps/producer-api/src/main.js",
+    "start:notification": "node dist/apps/notification-service/src/main.js",
+    "start:analytics": "node dist/apps/analytics-service/src/main.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@nestjs/common": "^11.1.17",
+    "@nestjs/core": "^11.1.17",
+    "@nestjs/microservices": "^11.1.17",
+    "@nestjs/platform-express": "^11.1.17",
+    "kafkajs": "^2.2.4",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2"
+  }
+}
