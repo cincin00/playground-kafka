@@ -5,9 +5,59 @@ NestJS와 TypeScript 기반으로 Kafka를 직접 만져보면서 EDA(Event-Driv
 이 저장소의 핵심 목표는 아주 단순합니다.
 
 - HTTP 요청이 들어오면 producer가 Kafka 토픽으로 이벤트를 발행합니다.
+
+  ```mermaid
+  graph LR
+      Client((Client)) -- "HTTP Request" --> Producer["Producer Service"]
+      Producer -- "Publish Event" --> Topic[("Kafka Topic")]
+  ```
+
 - 여러 consumer가 같은 이벤트를 각자 독립적으로 소비합니다.
+
+  ```mermaid
+  graph LR
+      Topic[("Kafka Topic")] -- "Consume" --> ConsumerA["Consumer A"]
+      Topic -- "Consume" --> ConsumerB["Consumer B"]
+      Topic -- "Consume" --> ConsumerC["Consumer C"]
+  ```
+
 - 토픽, consumer group, fan-out, 분산 소비 같은 Kafka 기본 개념을 손으로 확인해봅니다.
+
+  ```mermaid
+  graph LR
+      Topic[("Kafka Topic")]
+
+      subgraph "Consumer Group A (Fan-out)"
+          C_A1["Consumer A-1"]
+      end
+
+      subgraph "Consumer Group B (Distributed Consumption)"
+          C_B1["Consumer B-1"]
+          C_B2["Consumer B-2"]
+      end
+
+      Topic -- "Event" --> C_A1
+      Topic -- "Event" --> C_B1
+      Topic -- "Event" --> C_B2
+  ```
+
 - 이벤트 계약을 별도 패키지로 분리해서 NestJS에 종속되지 않는 구조를 연습합니다.
+
+  ```mermaid
+  graph TD
+      Contract["Event Contract Package\n(Independent)"]
+
+      subgraph "Producer Side"
+          Producer["NestJS Producer"]
+      end
+
+      subgraph "Consumer Side"
+          Consumer["NestJS Consumer"]
+      end
+
+      Contract -. "Imports" .-> Producer
+      Contract -. "Imports" .-> Consumer
+  ```
 
 이 문서는 처음 실행하는 사람 기준으로 작성했습니다. 아래 순서대로 따라가면 로컬에서 Kafka를 띄우고, NestJS 서비스들을 실행하고, 이벤트를 발행하고, Kafka UI에서 메시지까지 확인할 수 있습니다.
 
