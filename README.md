@@ -496,7 +496,15 @@ http://localhost:3000/docs
 
 `POST /orders`의 `Try it out` 버튼을 눌러 요청 본문을 넣고 실행하면, 같은 방식으로 Kafka 메시지를 발행할 수 있습니다.
 
-consumer 둘도 상태 조회 endpoint를 제공합니다.
+consumer 둘도 health endpoint와 상태 조회 endpoint를 제공합니다.
+
+```bash
+curl http://localhost:3001/health
+```
+
+```bash
+curl http://localhost:3002/health
+```
 
 ```bash
 curl http://localhost:3001/status
@@ -507,6 +515,8 @@ curl http://localhost:3002/status
 ```
 
 `notification-service`는 최근 예약된 알림 이벤트 목록을 보여주고, `analytics-service`는 통화별 누적 금액과 최근 프로젝션 갱신 내역을 보여줍니다.
+
+중요한 점은 이 `/status` 응답이 별도 DB에서 조회되는 값이 아니라 각 서비스 프로세스 메모리에 누적된 최근 처리 결과라는 점입니다. 그래서 서비스를 재시작하면 `processedCount`, 최근 목록, 통화별 누적값은 다시 초기화됩니다.
 
 ### 5-6. consumer 서비스는 별도 데몬인가
 
@@ -545,6 +555,39 @@ http://localhost:3002/status
 3. `app.listen(port)`로 HTTP 서버도 함께 엽니다.
 
 그래서 현재 예제의 `notification-service`와 `analytics-service`는 "HTTP API도 제공하고, 동시에 Kafka 메시지도 소비하는 하이브리드 Nest 앱"이라고 이해하면 가장 정확합니다.
+
+### 5-7. 하이브리드 consumer 구조 한눈에 보기
+
+```mermaid
+flowchart LR
+    Client((Browser / curl))
+    Topic[("orders.created.v1")]
+
+    subgraph Notification["notification-service 프로세스"]
+        NHttp["HTTP 서버<br/>/health, /status"]
+        NKafka["Kafka consumer<br/>orders.created.v1"]
+        NHandler["OrderEventsController<br/>@EventPattern"]
+        NState["NotificationStatusService<br/>process memory"]
+        NHttp --> NState
+        NKafka --> NHandler --> NState
+    end
+
+    subgraph Analytics["analytics-service 프로세스"]
+        AHttp["HTTP 서버<br/>/health, /status"]
+        AKafka["Kafka consumer<br/>orders.created.v1"]
+        AHandler["OrderEventsController<br/>@EventPattern"]
+        AState["AnalyticsStatusService<br/>process memory"]
+        AHttp --> AState
+        AKafka --> AHandler --> AState
+    end
+
+    Client --> NHttp
+    Client --> AHttp
+    Topic --> NKafka
+    Topic --> AKafka
+```
+
+이 그림에서 핵심은 consumer 서비스가 "Kafka만 듣는 데몬"이 아니라는 점입니다. 각 서비스는 하나의 Nest 프로세스 안에서 HTTP 서버와 Kafka consumer를 함께 실행하고, 이벤트 처리 결과를 메모리에 적재한 뒤 `/status` 응답으로 그대로 노출합니다.
 
 ## 6. 첫 이벤트 발행해보기
 
@@ -593,13 +636,13 @@ Published orders.created.v1 for order=92c2e72c-044d-41f3-918d-63c1111c2f8b
 `notification-service`
 
 ```text
-Reserved notification flow for order=92c2e72c-044d-41f3-918d-63c1111c2f8b customer=customer-101 topic=orders.created.v1 partition=2 offset=0
+Reserved notification flow for order=92c2e72c-044d-41f3-918d-63c1111c2f8b customer=customer-101 topic=orders.created.v1 partition=2 offset=0 processedCount=1
 ```
 
 `analytics-service`
 
 ```text
-Updated analytics projection for order=92c2e72c-044d-41f3-918d-63c1111c2f8b amount=42000KRW topic=orders.created.v1 partition=2 offset=0
+Updated analytics projection for order=92c2e72c-044d-41f3-918d-63c1111c2f8b amount=42000KRW topic=orders.created.v1 partition=2 offset=0 processedCount=1
 ```
 
 이 로그로 확인할 수 있는 사실은 아래와 같습니다.
@@ -675,6 +718,8 @@ curl http://localhost:3002/status
   ]
 }
 ```
+
+이 두 `/status` 응답은 Kafka 토픽을 다시 스캔해 계산한 결과가 아니라 서비스 프로세스 메모리에 남아 있는 최근 상태입니다. 따라서 서비스를 재시작하면 `processedCount`, 최근 목록, 통화별 합계는 다시 초기화됩니다.
 
 ## 8. 여러 이벤트를 연속으로 발행해보기
 
@@ -769,6 +814,89 @@ http://localhost:8080
 - 방금 보낸 이벤트의 JSON payload가 들어왔는지
 - consumer group이 생성되었는지
 
+### 10-1. Topics 화면에서 토픽이 2개 보일 수 있는 이유
+
+Kafka UI에서 `Show Internal Topics`를 켜면 보통 아래 두 토픽이 보입니다.
+
+- `orders.created.v1`
+  - 이 프로젝트가 직접 사용하는 비즈니스 토픽입니다.
+  - `producer-api`가 주문 생성 이벤트를 발행하고, 두 consumer가 이를 읽습니다.
+- `__consumer_offsets`
+  - Kafka가 내부적으로 consumer group의 offset을 관리하기 위해 쓰는 시스템 토픽입니다.
+  - 비즈니스 이벤트를 담기 위한 토픽이 아니며, Kafka가 자동으로 사용합니다.
+
+즉 토픽이 2개 보인다고 해서 이 프로젝트가 비즈니스 토픽을 2개 만든 것은 아닙니다.
+
+### 10-2. Consumers 화면에서 group 이름 뒤에 `-server`가 붙는 이유
+
+코드에서 지정한 groupId는 아래와 같습니다.
+
+- `notification-service-group`
+- `analytics-service-group`
+
+하지만 Kafka UI에서는 아래처럼 보일 수 있습니다.
+
+- `notification-service-group-server`
+- `analytics-service-group-server`
+
+이는 NestJS Kafka 서버 구현이 내부적으로 `-server` postfix를 붙이기 때문입니다. Nest의 microservice client와 server 인스턴스가 같은 `clientId`나 `groupId`를 그대로 공유해 충돌하는 일을 피하려는 의도라고 보면 됩니다.
+
+### 10-3. Brokers 화면의 `Active Controller = 1`은 무엇을 뜻하나
+
+현재 `docker-compose.yml`은 단일 KRaft 노드 구성입니다.
+
+- `KAFKA_PROCESS_ROLES: broker,controller`
+- `KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093`
+
+즉 하나의 Kafka 노드가 브로커와 컨트롤러를 동시에 맡고 있고, controller quorum voter도 `1번 노드` 하나뿐입니다. 그래서 Kafka UI에는 자연스럽게 `Active Controller = 1`로 표시됩니다.
+
+여기서 controller는 메시지를 전부 중계하는 역할이라기보다, 토픽 메타데이터와 파티션 leader 정보를 관리하는 클러스터 운영자에 가깝습니다.
+
+### 10-4. Brokers 화면에서 전체 partition 수가 53개로 보이는 이유
+
+현재 예제에서는 아래 두 토픽의 파티션 수가 합쳐져 보입니다.
+
+- `orders.created.v1`: 3 partitions
+- `__consumer_offsets`: 50 partitions
+
+따라서 Kafka UI의 Brokers 화면에서 전체 파티션 수가 `53`으로 보이는 것은 정상입니다.
+
+### 10-5. Kafka UI에는 `kafka:9092`가 보이는데 앱은 왜 `localhost:9094`에 연결하나
+
+이 부분은 Docker 네트워크 안팎의 주소가 다르기 때문입니다.
+
+- `kafka:9092`
+  - Docker 네트워크 내부에서 컨테이너끼리 통신할 때 사용하는 주소입니다.
+  - Kafka UI 컨테이너는 이 주소로 Kafka 브로커에 연결합니다.
+- `localhost:9094`
+  - 호스트 머신에서 실행하는 Nest 앱이 접속할 때 사용하는 포트입니다.
+  - `producer-api`, `notification-service`, `analytics-service`는 기본적으로 이 주소를 사용합니다.
+
+즉 화면에 보이는 주소와 애플리케이션에서 사용하는 주소가 달라도 설정이 잘못된 것은 아닙니다.
+
+### 10-6. Consumers 화면의 주요 컬럼은 어떻게 읽어야 하나
+
+이 프로젝트를 실행하면 Consumers 화면에서 보통 아래와 비슷한 값을 보게 됩니다.
+
+- `Group ID`
+  - consumer group 이름입니다.
+  - 예: `notification-service-group-server`, `analytics-service-group-server`
+- `Num Of Members`
+  - 현재 그 consumer group에 붙어 있는 consumer 인스턴스 수입니다.
+  - 기본 실행 상태라면 각 group마다 `1`이 보이는 것이 자연스럽습니다.
+- `Num Of Topics`
+  - 해당 group이 구독 중인 topic 수입니다.
+  - 이 예제에서는 보통 `orders.created.v1` 하나만 구독하므로 `1`로 보입니다.
+- `Consumer Lag`
+  - producer가 쌓아 둔 최신 메시지 위치와 consumer가 읽은 위치의 차이입니다.
+  - UI에서 `N/A`로 보이더라도 곧바로 오류라고 볼 필요는 없습니다.
+- `Coordinator`
+  - 해당 consumer group을 관리하는 broker ID입니다.
+  - 현재 예제는 단일 broker 구성이라 `1`로 보이는 것이 정상입니다.
+- `State`
+  - consumer group의 현재 상태입니다.
+  - `STABLE`이면 리밸런싱이 끝났고 정상적으로 메시지를 받을 준비가 된 상태라고 이해하면 됩니다.
+
 ## 11. 왜 consumer 둘 다 같은 메시지를 받나
 
 이 부분이 Kafka 입문에서 가장 중요한 지점 중 하나입니다.
@@ -860,19 +988,22 @@ npm run build
 npm run start:producer
 ```
 
-- 빌드된 producer API를 실행합니다.
+- 빌드된 `producer-api` HTTP 서버를 실행합니다.
+- `POST /orders`, `GET /health`, Swagger UI(`/docs`)를 제공합니다.
 
 ```bash
 npm run start:notification
 ```
 
-- 빌드된 notification consumer를 실행합니다.
+- 빌드된 `notification-service` 하이브리드 앱을 실행합니다.
+- 같은 프로세스 안에서 Kafka consumer를 시작하고, 동시에 HTTP `/health`, `/status`도 엽니다.
 
 ```bash
 npm run start:analytics
 ```
 
-- 빌드된 analytics consumer를 실행합니다.
+- 빌드된 `analytics-service` 하이브리드 앱을 실행합니다.
+- 같은 프로세스 안에서 Kafka consumer를 시작하고, 동시에 HTTP `/health`, `/status`도 엽니다.
 
 ```bash
 npm run dev:producer
@@ -887,6 +1018,7 @@ npm run dev:analytics
 ```
 
 - `tsx watch` 기반 개발용 스크립트입니다.
+- `dev:producer`는 HTTP producer 앱을, `dev:notification`과 `dev:analytics`는 하이브리드 consumer 앱을 watch 모드로 실행합니다.
 - 로컬 개발 환경에서는 편리하지만, 실행 환경에 따라 watch IPC 제약이 있을 수 있습니다.
 - 가장 안정적으로 따라하려면 README의 기본 경로대로 `build -> start:*` 순서를 추천합니다.
 
