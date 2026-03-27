@@ -508,6 +508,44 @@ curl http://localhost:3002/status
 
 `notification-service`는 최근 예약된 알림 이벤트 목록을 보여주고, `analytics-service`는 통화별 누적 금액과 최근 프로젝션 갱신 내역을 보여줍니다.
 
+### 5-6. consumer 서비스는 별도 데몬인가
+
+Kafka consumer는 메시지를 계속 받으려면 살아 있는 장기 실행 프로세스가 필요합니다. 그래서 개념적으로는 "백그라운드에서 계속 도는 worker" 또는 "데몬처럼 동작하는 프로세스"라고 이해해도 괜찮습니다.
+
+다만 이 예제에서는 별도의 consumer 데몬 프로그램을 따로 두지 않았습니다. 대신 `notification-service`와 `analytics-service` 프로세스 자체가 그 역할을 맡습니다.
+
+즉 아래 명령을 실행하면:
+
+```bash
+npm run start:notification
+```
+
+```bash
+npm run start:analytics
+```
+
+하나의 Nest 프로세스 안에서 두 가지가 함께 시작됩니다.
+
+- HTTP 서버
+- Kafka consumer 마이크로서비스
+
+이 구조 때문에 브라우저에서 아래 주소로 접속하면:
+
+```text
+http://localhost:3001/status
+http://localhost:3002/status
+```
+
+이는 Kafka에 직접 붙는 것이 아니라 해당 서비스의 HTTP 서버에 접속한 것입니다. 반면 같은 프로세스 안에서는 Kafka consumer가 계속 브로커에 연결된 상태로 이벤트를 기다립니다.
+
+실행 흐름을 간단히 보면 아래와 같습니다.
+
+1. `app.connectMicroservice(...)`로 Kafka transport를 연결합니다.
+2. `app.startAllMicroservices()`로 Kafka consumer 루프를 시작합니다.
+3. `app.listen(port)`로 HTTP 서버도 함께 엽니다.
+
+그래서 현재 예제의 `notification-service`와 `analytics-service`는 "HTTP API도 제공하고, 동시에 Kafka 메시지도 소비하는 하이브리드 Nest 앱"이라고 이해하면 가장 정확합니다.
+
 ## 6. 첫 이벤트 발행해보기
 
 이제 producer API에 HTTP 요청을 보내서 Kafka 이벤트를 발생시켜 보겠습니다.
