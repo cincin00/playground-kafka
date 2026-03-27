@@ -229,7 +229,8 @@ flowchart TB
 이 구조를 기준으로 보면:
 
 - Node.js로 실행하는 Nest 서비스 3개와 Docker로 띄우는 Kafka 2개 컴포넌트가 분리되어 있습니다.
-- `producer-api`는 HTTP 포트를 열고, consumer 둘은 HTTP 포트 없이 Kafka에만 연결됩니다.
+- `producer-api`는 HTTP로 이벤트를 발행합니다.
+- consumer 둘은 Kafka를 소비하면서도 HTTP 상태 조회 포트를 함께 엽니다.
 - Kafka UI는 브라우저에서 접속해 Kafka 내부 상태를 확인하는 관찰 도구 역할을 합니다.
 
 ### 1-5. Mermaid 소스 의존 관계도
@@ -354,9 +355,9 @@ Kafka를 처음 볼 때는 용어가 한꺼번에 많이 나와서 헷갈릴 수
 - `apps/producer-api/src`
   - HTTP 요청을 받아 이벤트를 발행하는 Nest 앱
 - `apps/notification-service/src`
-  - 이벤트를 소비하는 Nest microservice
+  - 이벤트를 소비하고 상태 조회 API를 여는 Nest 앱
 - `apps/analytics-service/src`
-  - 이벤트를 소비하는 또 다른 Nest microservice
+  - 이벤트를 소비하고 집계 상태를 보여주는 Nest 앱
 - `packages/contracts/src/order-created.event.ts`
   - 토픽 이름 `orders.created.v1`
   - 요청 타입 `CreateOrderRequest`
@@ -374,6 +375,8 @@ Kafka를 처음 볼 때는 용어가 한꺼번에 많이 나와서 헷갈릴 수
 현재 프로젝트는 아래 포트를 사용합니다.
 
 - `3000`: `producer-api`
+- `3001`: `notification-service`
+- `3002`: `analytics-service`
 - `8080`: Kafka UI
 - `9094`: Kafka 브로커 외부 접속 포트
 
@@ -452,18 +455,21 @@ npm run start:producer
 
 ```text
 Notification consumer is listening with group notification-service-group
+Notification status API listening on http://localhost:3001/status
 ```
 
 `analytics-service`
 
 ```text
 Analytics consumer is listening with group analytics-service-group
+Analytics status API listening on http://localhost:3002/status
 ```
 
 `producer-api`
 
 ```text
 Producer API listening on http://localhost:3000
+Swagger UI available at http://localhost:3000/docs
 Kafka brokers: localhost:9094
 ```
 
@@ -481,6 +487,26 @@ curl http://localhost:3000/health
   "status": "ok"
 }
 ```
+
+Swagger UI에서도 바로 테스트할 수 있습니다.
+
+```text
+http://localhost:3000/docs
+```
+
+`POST /orders`의 `Try it out` 버튼을 눌러 요청 본문을 넣고 실행하면, 같은 방식으로 Kafka 메시지를 발행할 수 있습니다.
+
+consumer 둘도 상태 조회 endpoint를 제공합니다.
+
+```bash
+curl http://localhost:3001/status
+```
+
+```bash
+curl http://localhost:3002/status
+```
+
+`notification-service`는 최근 예약된 알림 이벤트 목록을 보여주고, `analytics-service`는 통화별 누적 금액과 최근 프로젝션 갱신 내역을 보여줍니다.
 
 ## 6. 첫 이벤트 발행해보기
 
@@ -544,6 +570,73 @@ Updated analytics projection for order=92c2e72c-044d-41f3-918d-63c1111c2f8b amou
 - 두 consumer는 같은 이벤트를 각각 받았습니다.
 - 두 consumer는 서로 다른 `groupId`를 사용하므로 같은 메시지를 독립적으로 소비합니다.
 - 메시지는 특정 partition과 offset을 가집니다.
+
+로그 외에도 HTTP 상태 API로 소비 결과를 다시 확인할 수 있습니다.
+
+`notification-service`
+
+```bash
+curl http://localhost:3001/status
+```
+
+예상 응답 예시:
+
+```json
+{
+  "service": "notification-service",
+  "status": "ok",
+  "groupId": "notification-service-group",
+  "processedCount": 1,
+  "lastProcessedAt": "2026-03-27T01:20:00.000Z",
+  "recentReservations": [
+    {
+      "eventId": "29507ae8-663e-4ec4-9415-a854ec596218",
+      "orderId": "92c2e72c-044d-41f3-918d-63c1111c2f8b",
+      "customerId": "customer-101",
+      "topic": "orders.created.v1",
+      "partition": 2,
+      "offset": "0",
+      "occurredAt": "2026-03-26T04:40:04.385Z",
+      "reservedAt": "2026-03-27T01:20:00.000Z"
+    }
+  ]
+}
+```
+
+`analytics-service`
+
+```bash
+curl http://localhost:3002/status
+```
+
+예상 응답 예시:
+
+```json
+{
+  "service": "analytics-service",
+  "status": "ok",
+  "groupId": "analytics-service-group",
+  "processedCount": 1,
+  "lastProcessedAt": "2026-03-27T01:20:00.000Z",
+  "totalsByCurrency": {
+    "KRW": 42000,
+    "USD": 0
+  },
+  "recentUpdates": [
+    {
+      "eventId": "29507ae8-663e-4ec4-9415-a854ec596218",
+      "orderId": "92c2e72c-044d-41f3-918d-63c1111c2f8b",
+      "totalAmount": 42000,
+      "currency": "KRW",
+      "topic": "orders.created.v1",
+      "partition": 2,
+      "offset": "0",
+      "occurredAt": "2026-03-26T04:40:04.385Z",
+      "projectedAt": "2026-03-27T01:20:00.000Z"
+    }
+  ]
+}
+```
 
 ## 8. 여러 이벤트를 연속으로 발행해보기
 
@@ -788,6 +881,10 @@ PORT=3100 npm run start:producer
 
 ### consumer 공통
 
+- `PORT`
+  - 기본값:
+    - notification: `3001`
+    - analytics: `3002`
 - `KAFKA_CLIENT_ID`
   - 기본값:
     - notification: `notification-service`
@@ -800,6 +897,7 @@ PORT=3100 npm run start:producer
 예시:
 
 ```bash
+PORT=3101 \
 KAFKA_CLIENT_ID=notification-local \
 KAFKA_GROUP_ID=notification-service-group \
 npm run start:notification

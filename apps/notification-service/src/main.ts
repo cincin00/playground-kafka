@@ -8,28 +8,33 @@ import { getKafkaBrokers } from '../../../packages/contracts/src/order-created.e
 import { AppModule } from './app.module';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.createMicroservice<MicroserviceOptions>(
-    AppModule,
-    {
-      transport: Transport.KAFKA,
-      options: {
-        client: {
-          clientId: process.env.KAFKA_CLIENT_ID ?? 'notification-service',
-          brokers: getKafkaBrokers(),
-        },
-        consumer: {
-          groupId: process.env.KAFKA_GROUP_ID ?? 'notification-service-group',
-        },
+  const app = await NestFactory.create(AppModule);
+  const port = Number(process.env.PORT ?? 3001);
+
+  app.connectMicroservice<MicroserviceOptions>({
+    transport: Transport.KAFKA,
+    options: {
+      client: {
+        clientId: process.env.KAFKA_CLIENT_ID ?? 'notification-service',
+        brokers: getKafkaBrokers(),
+      },
+      consumer: {
+        groupId: process.env.KAFKA_GROUP_ID ?? 'notification-service-group',
       },
     },
-  );
+  });
 
-  await app.listen();
+  await app.startAllMicroservices();
+  await app.listen(port);
 
   Logger.log(
     `Notification consumer is listening with group ${
       process.env.KAFKA_GROUP_ID ?? 'notification-service-group'
     }`,
+    'Bootstrap',
+  );
+  Logger.log(
+    `Notification status API listening on http://localhost:${port}/status`,
     'Bootstrap',
   );
 }
