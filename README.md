@@ -80,7 +80,7 @@ NestJS와 TypeScript 기반으로 Kafka를 직접 만져보면서 EDA(Event-Driv
   - 토픽 이름과 이벤트 타입 정의를 한곳에 둡니다.
   - 나중에 producer나 consumer를 다른 런타임으로 바꿔도 이벤트 계약을 재사용하기 쉽게 만듭니다.
 
-### 1-1. Mermaid 서비스 구조도
+### 1-1. 서비스 구조도
 
 ```mermaid
 flowchart LR
@@ -116,7 +116,7 @@ flowchart LR
     kafkaUi -. inspect .-> kafka
 ```
 
-### 1-2. Mermaid 이벤트 흐름도
+### 1-2. 이벤트 흐름도
 
 ```mermaid
 sequenceDiagram
@@ -145,7 +145,7 @@ sequenceDiagram
     Analytics->>Analytics: 분석 프로젝션 로그 기록
 ```
 
-### 1-3. Mermaid consumer group scale-out 흐름도
+### 1-3. consumer group scale-out 흐름도
 
 아래 그림은 `analytics-service`를 같은 `groupId`로 하나 더 띄웠을 때 어떤 차이가 생기는지 보여줍니다.
 
@@ -196,7 +196,7 @@ flowchart LR
 - `analytics-service-group`은 인스턴스가 둘이면 partition 할당 결과에 따라 메시지가 인스턴스 간 분산될 수 있습니다.
 - 하지만 `notification-service-group`과 `analytics-service-group`은 서로 다른 group이므로 두 group 모두 같은 이벤트를 각자 받습니다.
 
-### 1-4. Mermaid 로컬 실행 환경 배치도
+### 1-4. 로컬 실행 환경 배치도
 
 아래 그림은 이 프로젝트를 로컬에서 실행할 때의 프로세스, 컨테이너, 포트 관계를 보여줍니다.
 
@@ -233,7 +233,7 @@ flowchart TB
 - consumer 둘은 Kafka를 소비하면서도 HTTP 상태 조회 포트를 함께 엽니다.
 - Kafka UI는 브라우저에서 접속해 Kafka 내부 상태를 확인하는 관찰 도구 역할을 합니다.
 
-### 1-5. Mermaid 소스 의존 관계도
+### 1-5. 소스 의존 관계도
 
 아래 그림은 현재 소스 파일들이 어떤 방향으로 의존하는지 단순화해서 보여줍니다.
 
